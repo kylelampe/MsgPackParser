@@ -10,9 +10,14 @@
 #include <vector>
 #include "cmp/cmp.h"
 
+#include "boost\program_options.hpp"
+
 using namespace std;
 
-void WriteObject(cmp_ctx_t& ctx, int level);
+int g_noOutputAboveLevel = -1;
+
+void WriteObject(cmp_ctx_t& ctx, cmp_object_t& obj, int level);
+
 
 static bool frame_reader(cmp_ctx_t *ctx, void *data, size_t limit) {
     auto p = reinterpret_cast<std::ifstream*>(ctx->buf);
@@ -66,9 +71,12 @@ void WriteMap(cmp_ctx_t& ctx, cmp_object_t& obj, int level)
     for (int i = 0; i < size; i++)
     {
         tabs(level + 1);
-        WriteObject(ctx, level + 1);
+
+        cmp_read_object(&ctx, &obj);
+        WriteObject(ctx, obj, level + 1);
         cout << " : ";
-        WriteObject(ctx, level + 1);
+        cmp_read_object(&ctx, &obj);
+        WriteObject(ctx, obj, level + 1);
         cout << endl;
     }
 
@@ -85,9 +93,17 @@ void WriteArray(cmp_ctx_t& ctx, cmp_object_t& obj, int level)
     cout << "Array Size: " << size << " [ " << endl;
     for (int i = 0; i < size; i++)
     {
-        tabs(level + 1);
-        WriteObject(ctx, level + 1);
-        cout << endl;
+
+        cmp_read_object(&ctx, &obj);
+        if (g_noOutputAboveLevel == -1 || g_noOutputAboveLevel > level + 1 ||
+            cmp_object_is_map(&obj) || cmp_object_is_array(&obj) ||
+            cmp_object_is_bin(&obj) || cmp_object_is_str(&obj) ||
+            cmp_object_is_ext(&obj))
+        {
+            tabs(level + 1);
+            WriteObject(ctx, obj, level + 1);
+            cout << endl;
+        }
     }
 
     tabs(level);
@@ -95,130 +111,125 @@ void WriteArray(cmp_ctx_t& ctx, cmp_object_t& obj, int level)
     cout << "] ";
 }
 
-void WriteObject(cmp_ctx_t& ctx, int level)
+void WriteObject(cmp_ctx_t& ctx, cmp_object_t& obj, int level)
 {
-    cmp_object_t obj;
-
-    if(cmp_read_object(&ctx, &obj))
+    if (cmp_object_is_ext(&obj))
     {
-        if (cmp_object_is_ext(&obj))
-        {
-            WriteExt(ctx, obj, level);
-        }
-        else if (cmp_object_is_map(&obj))
-        {
-            WriteMap(ctx, obj, level);
-        }
-        else if (cmp_object_is_array(&obj))
-        {
-            WriteArray(ctx, obj, level);
-        }
-        else if (cmp_object_is_bin(&obj))
-        {
-            uint32_t size;
-            vector<unsigned char> v;
+        WriteExt(ctx, obj, level);
+    }
+    else if (cmp_object_is_map(&obj))
+    {
+        WriteMap(ctx, obj, level);
+    }
+    else if (cmp_object_is_array(&obj))
+    {
+        WriteArray(ctx, obj, level);
+    }
+    else if (cmp_object_is_bin(&obj))
+    {
+        uint32_t size;
+        vector<unsigned char> v;
 
-            cmp_object_as_bin(&obj, &size);
-            v.resize(size);
+        cmp_object_as_bin(&obj, &size);
+        v.resize(size);
 
-            frame_reader(&ctx, v.data(), size);
+        frame_reader(&ctx, v.data(), size);
 
-            cout << "Binary Data (size: " << size << ") ";
-        }
-        else if (cmp_object_is_str(&obj))
-        {
-            uint32_t size;
+        cout << "Binary Data (size: " << size << ") ";
+    }
+    else if (cmp_object_is_str(&obj))
+    {
+        uint32_t size;
 
-            cmp_object_as_str(&obj, &size);
-            auto s = StringReaderHelper(ctx, obj, size);
-            cout << s << " ";
-        }
-        else if (cmp_object_is_bool(&obj))
-        {
-            bool b;
-            cmp_object_as_bool(&obj, &b);
+        cmp_object_as_str(&obj, &size);
+        auto s = StringReaderHelper(ctx, obj, size);
+        cout << s << " ";
+    }
+    else if (cmp_object_is_bool(&obj))
+    {
+        bool b;
+        cmp_object_as_bool(&obj, &b);
 
-            if (b)
-                cout << "True; ";
-            else
-                cout << "False; ";
-        }
-        else if (cmp_object_is_nil(&obj))
-        {
-            cout << "Nil";
-        }
-        else if (cmp_object_is_double(&obj))
-        {
-            double d;
-            cmp_object_as_double(&obj, &d);
-            cout << d << " (double) ";
-        }
-        else if (cmp_object_is_float(&obj))
-        {
-            float d;
-            cmp_object_as_float(&obj, &d);
-            cout << d << " (float) ";
-        }
-        else if (cmp_object_is_uinteger(&obj))
-        {
-            uint64_t d;
-            cmp_object_as_uinteger(&obj, &d);
-            cout << d << " (uinteger) ";
-        }
-        else if (cmp_object_is_ulong(&obj))
-        {
-            uint64_t d;
-            cmp_object_as_ulong(&obj, &d);
-            cout << d << " (ulong) ";
-        }
-        else if (cmp_object_is_uint(&obj))
-        {
-            uint32_t d;
-            cmp_object_as_uint(&obj, &d);
-            cout << d << " (uint) ";
-        }
-        else if (cmp_object_is_ushort(&obj))
-        {
-            uint16_t d;
-            cmp_object_as_ushort(&obj, &d);
-            cout << d << " (ushort) ";
-        }
-        else if (cmp_object_is_uchar(&obj))
-        {
-            uint8_t d;
-            cmp_object_as_uchar(&obj, &d);
-            cout << d << " (uchar) ";
-        }
-        else if (cmp_object_is_sinteger(&obj))
-        {
-            int64_t d;
-            cmp_object_as_sinteger(&obj, &d);
-            cout << d << " (sinteger) ";
-        }
-        else if (cmp_object_is_long(&obj))
-        {
-            int64_t d;
-            cmp_object_as_long(&obj, &d);
-            cout << d << " (long) ";
-        }
-        else if (cmp_object_is_int(&obj))
-        {
-            int32_t d;
-            cmp_object_as_int(&obj, &d);
-            cout << d << " (int) ";
-        }
-        else if (cmp_object_is_short(&obj))
-        {
-            int16_t d;
-            cmp_object_as_short(&obj, &d);
-            cout << d << " (short) ";
-        }
-        else if (cmp_object_is_char(&obj))
-        {
-            int8_t c;
-            cmp_object_as_char(&obj, &c);
-            cout << c << " (char) ";
-        }
+        if (b)
+            cout << "True; ";
+        else
+            cout << "False; ";
+    }
+    else if (cmp_object_is_nil(&obj))
+    {
+        cout << "Nil";
+    }
+    else if (cmp_object_is_double(&obj))
+    {
+        double d;
+        cmp_object_as_double(&obj, &d);
+        cout << d << " (double) ";
+    }
+    else if (cmp_object_is_float(&obj))
+    {
+        float d;
+        cmp_object_as_float(&obj, &d);
+        cout << d << " (float) ";
+    }
+    else if (cmp_object_is_uinteger(&obj))
+    {
+        uint64_t d;
+        cmp_object_as_uinteger(&obj, &d);
+        cout << d << " (uinteger) ";
+    }
+    else if (cmp_object_is_ulong(&obj))
+    {
+        uint64_t d;
+        cmp_object_as_ulong(&obj, &d);
+        cout << d << " (ulong) ";
+    }
+    else if (cmp_object_is_uint(&obj))
+    {
+        uint32_t d;
+        cmp_object_as_uint(&obj, &d);
+        cout << d << " (uint) ";
+    }
+    else if (cmp_object_is_ushort(&obj))
+    {
+        uint16_t d;
+        cmp_object_as_ushort(&obj, &d);
+        cout << d << " (ushort) ";
+    }
+    else if (cmp_object_is_uchar(&obj))
+    {
+        uint8_t d;
+        cmp_object_as_uchar(&obj, &d);
+        cout << d << " (uchar) ";
+    }
+    else if (cmp_object_is_sinteger(&obj))
+    {
+        int64_t d;
+        cmp_object_as_sinteger(&obj, &d);
+        cout << d << " (sinteger) ";
+    }
+    else if (cmp_object_is_long(&obj))
+    {
+        int64_t d;
+        cmp_object_as_long(&obj, &d);
+        cout << d << " (long) ";
+    }
+    else if (cmp_object_is_int(&obj))
+    {
+        int32_t d;
+        cmp_object_as_int(&obj, &d);
+        cout << d << " (int) ";
+    }
+    else if (cmp_object_is_short(&obj))
+    {
+        int16_t d;
+        cmp_object_as_short(&obj, &d);
+        cout << d << " (short) ";
+    }
+    else if (cmp_object_is_char(&obj))
+    {
+        int8_t c;
+        cmp_object_as_char(&obj, &c);
+        cout << c << " (char) ";
     }
 }
 
@@ -226,14 +237,36 @@ int _tmain(int argc, _TCHAR* argv[])
 {
     std::ifstream f;
 
-    f.open(argv[1], std::ios::binary);
+    boost::program_options::options_description desc;
+    desc.add_options()
+        ("help,h", "Show valid command line options")
+        ("file,f", boost::program_options::value<string>(), "Target file to read.")
+        ("level,l", boost::program_options::value<int>(), "(Optional) Collapse all arrays and maps below this level, showing only counts.");
+    boost::program_options::variables_map vm;
+
+    boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
+    boost::program_options::notify(vm);
+
+    if (vm.count("help") || vm.count("file") == 0)
+    {
+        cout << desc << endl;
+        return 1;
+    }
+
+    if (vm.count("level"))
+        g_noOutputAboveLevel = vm["level"].as<int>();
+
+    f.open(vm["file"].as<string>().c_str(), std::ios::binary);
 
     if (f.is_open())
     {
         cmp_ctx_t cmp;
-        cmp_init(&cmp, &f, frame_reader, nullptr);
+        cmp_object_t obj;
 
-        WriteObject(cmp, 0);
+        cmp_init(&cmp, &f, frame_reader, nullptr);
+        
+        if(cmp_read_object(&cmp, &obj))
+            WriteObject(cmp, obj, 0);
     }
     else
     {
